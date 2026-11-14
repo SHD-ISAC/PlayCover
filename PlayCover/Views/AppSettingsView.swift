@@ -866,7 +866,7 @@ struct CustomDylibView: View {
                 let alert = NSAlert()
                 alert.messageText = "This plug-in is quarantined by macOS"
                 alert.informativeText = """
-                \(url.lastPathComponent) was downloaded or could not be verified. Importing it will                 remove quarantine from the plug-in copy and permit its code to run inside the game.                 Continue only if you trust the file and its source.
+                \(url.lastPathComponent) is quarantined by macOS. Importing it removes that                 protection from the plug-in copy and allows native code to run inside the game.                 Continue only if you trust the file and its source.
                 """
                 alert.alertStyle = .warning
                 alert.addButton(withTitle: "Cancel")

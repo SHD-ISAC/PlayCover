@@ -147,7 +147,7 @@ class DownloadApp {
 
     // A remote source without a trusted digest must not silently install code.
     private func verifyChecksum(checksum: String?, file: URL?, completion: @escaping (Bool) -> Void) {
-        Task { @MainActor in
+        Task {
             guard let expected = checksum?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
                   expected.count == 64,
                   expected.allSatisfy({ $0.isHexDigit }),

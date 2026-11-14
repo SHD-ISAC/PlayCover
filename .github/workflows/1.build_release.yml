@@ -50,16 +50,25 @@ jobs:
           npx create-dmg ./output/PlayCover.app ./output
           mv ./output/*.dmg ./output/PlayCover_${{ env.TAG_NAME }}.dmg
 
-      - name: Notarize DMG
-        continue-on-error: true
+      # Fail closed: do not publish or upload a DMG until notarization succeeds.
+      - name: Notarize and staple DMG
         shell: bash
         run: |
-          fastlane notarize_dmg package:output/PlayCover_${{ env.TAG_NAME }}.dmg
-
+          set -euo pipefail
+          export NOTARY_KEY="$RUNNER_TEMP/playcover_notary_key.p8"
+          ruby -rjson -e 'data = JSON.parse(File.read("apikey.json")); File.write(ENV.fetch("NOTARY_KEY"), data.fetch("key")); File.chmod(0600, ENV.fetch("NOTARY_KEY"))'
+          key_id="$(ruby -rjson -e 'print JSON.parse(File.read("apikey.json")).fetch("key_id")')"
+          issuer_id="$(ruby -rjson -e 'print JSON.parse(File.read("apikey.json")).fetch("issuer_id")')"
+          xcrun notarytool submit "output/PlayCover_${{ env.TAG_NAME }}.dmg" \
+            --key "$NOTARY_KEY" --key-id "$key_id" --issuer "$issuer_id" \
+            --wait --timeout 30m
+          xcrun stapler staple "output/PlayCover_${{ env.TAG_NAME }}.dmg"
+          xcrun stapler validate "output/PlayCover_${{ env.TAG_NAME }}.dmg"
 
       - name: Clean Up
+        if: always()
         shell: bash
-        run: rm apikey.json
+        run: rm -f apikey.json "$RUNNER_TEMP/playcover_notary_key.p8"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v7
