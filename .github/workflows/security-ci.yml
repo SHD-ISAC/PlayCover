@@ -1,0 +1,57 @@
+name: macOS unsigned build and security checks
+
+on:
+  pull_request:
+    paths:
+      - 'PlayCover/**'
+      - 'PlayCover.xcodeproj/**'
+      - 'Cartfile*'
+      - 'fastlane/**'
+      - '.github/workflows/security-ci.yml'
+  push:
+    branches:
+      - security-hardening
+    paths:
+      - 'PlayCover/**'
+      - 'PlayCover.xcodeproj/**'
+      - 'Cartfile*'
+      - 'fastlane/**'
+      - '.github/workflows/security-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unsigned-build:
+    name: macOS unsigned build
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Select Xcode and dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          brew install carthage
+          carthage bootstrap --use-xcframeworks
+      - name: Build without signing credentials
+        shell: bash
+        env:
+          FASTLANE: "1"
+        run: |
+          set -euo pipefail
+          xcodebuild -project PlayCover.xcodeproj \
+            -scheme PlayCover \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -derivedDataPath "$RUNNER_TEMP/PlayCoverDerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+      - name: Verify no signing credentials were required
+        shell: bash
+        run: |
+          test -d "$RUNNER_TEMP/PlayCoverDerivedData/Build/Products/Release/PlayCover.app"

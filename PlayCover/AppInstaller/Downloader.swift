@@ -129,8 +129,11 @@ class DownloadApp {
                             Task { @MainActor in
                                 self.proceedInstall(fileURL)
                             }
-                        } else if let fileURL = fileURL {
-                            FileManager.default.delete(at: fileURL)
+                        } else {
+                            if let fileURL = fileURL {
+                                FileManager.default.delete(at: fileURL)
+                            }
+                            self.downloadVM.storeAppData = nil
                         }
                     }
                 })
@@ -145,24 +148,27 @@ class DownloadApp {
         }
     }
 
-    // A remote source without a trusted digest must not silently install code.
+    // Hash off the main thread; report UI state only on the main thread.
+    // SHA-256 only authenticates a download when the source metadata is trusted.
     private func verifyChecksum(checksum: String?, file: URL?, completion: @escaping (Bool) -> Void) {
-        Task {
-            guard let expected = checksum?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
-                  expected.count == 64,
-                  expected.allSatisfy({ $0.isHexDigit }),
-                  let fileURL = file else {
-                Log.shared.error("Download blocked: source must provide a valid SHA-256 checksum.")
-                completion(false)
-                return
-            }
+        DispatchQueue.global(qos: .utility).async {
+            let expected = checksum?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let validDigest = expected?.count == 64 && (expected?.allSatisfy { $0.isHexDigit } == true)
+            let actual = validDigest ? file?.sha256?.lowercased() : nil
 
-            guard let actual = fileURL.sha256?.lowercased(), actual == expected else {
-                Log.shared.error("Download blocked: the IPA SHA-256 does not match its source.")
-                completion(false)
-                return
+            DispatchQueue.main.async {
+                guard validDigest, file != nil else {
+                    Log.shared.error("Download blocked: a valid SHA-256 is required for remote IPA sources.")
+                    completion(false)
+                    return
+                }
+                guard actual == expected else {
+                    Log.shared.error("Download blocked: IPA SHA-256 mismatch or unreadable archive.")
+                    completion(false)
+                    return
+                }
+                completion(true)
             }
-            completion(true)
         }
     }
 
