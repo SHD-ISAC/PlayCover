@@ -39,7 +39,8 @@ jobs:
         run: |
           set -euo pipefail
           xcodebuild -version
-          brew install carthage
+          brew install carthage swiftlint
+          swiftlint version
           # The pinned PlayTools release has no binary assets; build from source.
           # Preserve diagnostics even if Carthage itself only prints "exit code 65".
           carthage bootstrap --use-xcframeworks --no-use-binaries 2>&1 |
