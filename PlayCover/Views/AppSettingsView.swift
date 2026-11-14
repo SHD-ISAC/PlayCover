@@ -624,7 +624,6 @@ struct MiscView: View {
     @AppStorage("settings.settings.metalHUD") private var metalHUD = false
     @AppStorage("settings.openWithLLDB") private var openWithLLDB = false
     @AppStorage("settings.openLLDBWithTerminal") private var openLLDBWithTerminal = false
-    @AppStorage("settings.customPluginsWarningShown") private var hasShownCustomPluginWarning = false
     @State var showPopover = false
     @State private var userDylibs: [URL] = []
     @State private var showCustomPluginWarning = false
@@ -754,7 +753,6 @@ struct MiscView: View {
                 }
                 CustomDylibView(app: app,
                                 showCustomPluginWarning: $showCustomPluginWarning,
-                                hasShownCustomPluginWarning: $hasShownCustomPluginWarning,
                                 hasPlayTools: $hasPlayTools,
                                 userDylibs: $userDylibs)
                 HStack {
@@ -809,7 +807,6 @@ struct MiscView: View {
 struct CustomDylibView: View {
     var app: PlayApp
     @Binding var showCustomPluginWarning: Bool
-    @Binding var hasShownCustomPluginWarning: Bool
     @Binding var hasPlayTools: Bool?
     @Binding var userDylibs: [URL]
 
@@ -820,11 +817,7 @@ struct CustomDylibView: View {
                     .font(.headline)
                 Spacer()
                 Button {
-                    if hasShownCustomPluginWarning {
-                        selectAndAddDylib()
-                    } else {
-                        showCustomPluginWarning = true
-                    }
+                    showCustomPluginWarning = true
                 } label: {
                     Label("settings.customPlugins.add", systemImage: "plus")
                 }
@@ -855,7 +848,6 @@ struct CustomDylibView: View {
         .alert("settings.customPlugins.warningTitle", isPresented: $showCustomPluginWarning) {
             Button("button.Cancel", role: .cancel) {}
             Button("settings.customPlugins.warningConfirm", role: .destructive) {
-                hasShownCustomPluginWarning = true
                 selectAndAddDylib()
             }
         } message: {
@@ -869,11 +861,24 @@ struct CustomDylibView: View {
     private func selectAndAddDylib() {
         NSOpenPanel.selectDylib { result in
             guard case .success(let url) = result else { return }
+            let quarantined = PlayTools.isQuarantined(url)
+            if quarantined {
+                let alert = NSAlert()
+                alert.messageText = "This plug-in is quarantined by macOS"
+                alert.informativeText = """
+                \(url.lastPathComponent) was downloaded or could not be verified. Importing it will                 remove quarantine from the plug-in copy and permit its code to run inside the game.                 Continue only if you trust the file and its source.
+                """
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "Cancel")
+                alert.addButton(withTitle: "Allow This Plug-in")
+                guard alert.runModal() == .alertSecondButtonReturn else { return }
+            }
             Task(priority: .userInitiated) {
                 do {
                     try PlayTools.addUserDylib(at: url,
                                                bundleIdentifier: app.info.bundleIdentifier,
-                                               appExecutable: app.executable)
+                                               appExecutable: app.executable,
+                                               allowQuarantined: quarantined)
                 } catch {
                     Log.shared.error(error)
                 }

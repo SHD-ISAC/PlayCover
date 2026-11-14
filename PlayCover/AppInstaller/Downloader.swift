@@ -129,6 +129,8 @@ class DownloadApp {
                             Task { @MainActor in
                                 self.proceedInstall(fileURL)
                             }
+                        } else if let fileURL = fileURL {
+                            FileManager.default.delete(at: fileURL)
                         }
                     }
                 })
@@ -143,32 +145,24 @@ class DownloadApp {
         }
     }
 
+    // A remote source without a trusted digest must not silently install code.
     private func verifyChecksum(checksum: String?, file: URL?, completion: @escaping (Bool) -> Void) {
-        Task {
-            if let originalSum = checksum, !originalSum.isEmpty, let fileURL = file {
-                if let sha256 = fileURL.sha256, originalSum != sha256 {
-                    checksumAlert(originalSum: originalSum, givenSum: sha256, completion: completion)
-                    return
-                }
+        Task { @MainActor in
+            guard let expected = checksum?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+                  expected.count == 64,
+                  expected.allSatisfy({ $0.isHexDigit }),
+                  let fileURL = file else {
+                Log.shared.error("Download blocked: source must provide a valid SHA-256 checksum.")
+                completion(false)
+                return
             }
 
+            guard let actual = fileURL.sha256?.lowercased(), actual == expected else {
+                Log.shared.error("Download blocked: the IPA SHA-256 does not match its source.")
+                completion(false)
+                return
+            }
             completion(true)
-        }
-    }
-
-    private func checksumAlert(originalSum: String, givenSum: String, completion: @escaping (Bool) -> Void) {
-        Task { @MainActor in
-            let alert = NSAlert()
-            alert.messageText = NSLocalizedString("playapp.download.differentChecksum", comment: "")
-            alert.informativeText = String(
-                format: NSLocalizedString("playapp.download.differentChecksumDesc", comment: ""),
-                arguments: [originalSum, givenSum]
-            )
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: NSLocalizedString("button.Proceed", comment: ""))
-            alert.addButton(withTitle: NSLocalizedString("button.Cancel", comment: ""))
-
-            completion(alert.runModal() == .alertFirstButtonReturn)
         }
     }
 

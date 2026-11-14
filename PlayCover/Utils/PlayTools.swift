@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import Darwin
 import injection
 
 // This has so many functionality in it that 250 lines is darn near impossible
@@ -279,7 +280,20 @@ class PlayTools {
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
 
-    static func addUserDylib(at sourceURL: URL, bundleIdentifier: String, appExecutable: URL) throws {
+    // A missing attribute is safe to proceed; any other read failure fails closed.
+    static func isQuarantined(_ url: URL) -> Bool {
+        url.withUnsafeFileSystemRepresentation { path in
+            guard let path else { return true }
+            let length = getxattr(path, "com.apple.quarantine", nil, 0, 0, 0)
+            return length >= 0 || errno != ENOATTR
+        }
+    }
+
+    static func addUserDylib(at sourceURL: URL, bundleIdentifier: String, appExecutable: URL,
+                             allowQuarantined: Bool = false) throws {
+        guard !isQuarantined(sourceURL) || allowQuarantined else {
+            throw "Import blocked: macOS quarantined this plug-in."
+        }
         let store = userPluginsStore(bundleIdentifier: bundleIdentifier)
         try FileManager.default.createDirectory(at: store, withIntermediateDirectories: true)
 
@@ -299,8 +313,20 @@ class PlayTools {
             throw PlayCoverError.invalidUserDylib
         }
 
-        // Downloaded files carry a quarantine flag that blocks dlopen(); best-effort clear it.
-        _ = try? Shell.run(print: false, "/usr/bin/xattr", "-d", "com.apple.quarantine", canonical.path)
+        // Never remove quarantine silently. Only the explicit per-file confirmation
+        // from the import UI may authorize clearing it from the copied plug-in.
+        if isQuarantined(canonical) {
+            guard allowQuarantined else {
+                try? FileManager.default.removeItem(at: canonical)
+                throw "Import blocked: macOS quarantined this plug-in."
+            }
+            do {
+                try Shell.run(print: false, "/usr/bin/xattr", "-d", "com.apple.quarantine", canonical.path)
+            } catch {
+                try? FileManager.default.removeItem(at: canonical)
+                throw error
+            }
+        }
 
         try syncUserDylibs(bundleIdentifier: bundleIdentifier, into: appExecutable)
     }
