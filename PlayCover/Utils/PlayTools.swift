@@ -292,7 +292,7 @@ class PlayTools {
     static func addUserDylib(at sourceURL: URL, bundleIdentifier: String, appExecutable: URL,
                              allowQuarantined: Bool = false) throws {
         guard !isQuarantined(sourceURL) || allowQuarantined else {
-            throw "Import blocked: macOS quarantined this plug-in."
+            throw PlayCoverError.quarantinedUserDylib
         }
         let store = userPluginsStore(bundleIdentifier: bundleIdentifier)
         try FileManager.default.createDirectory(at: store, withIntermediateDirectories: true)
@@ -318,7 +318,7 @@ class PlayTools {
         if isQuarantined(canonical) {
             guard allowQuarantined else {
                 try? FileManager.default.removeItem(at: canonical)
-                throw "Import blocked: macOS quarantined this plug-in."
+                throw PlayCoverError.quarantinedUserDylib
             }
             do {
                 try Shell.run(print: false, "/usr/bin/xattr", "-d", "com.apple.quarantine", canonical.path)

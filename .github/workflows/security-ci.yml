@@ -31,13 +31,19 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Select Xcode and dependencies
+      - name: Select Xcode and build PlayTools dependency
         shell: bash
+        env:
+          # Carthage uses this token for GitHub requests instead of the shared runner IP quota.
+          GITHUB_ACCESS_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           xcodebuild -version
           brew install carthage
-          carthage bootstrap --use-xcframeworks
+          # The pinned PlayTools release has no binary assets; build from source.
+          # Preserve diagnostics even if Carthage itself only prints "exit code 65".
+          carthage bootstrap --use-xcframeworks --no-use-binaries 2>&1 |
+            tee "$RUNNER_TEMP/carthage-bootstrap.log"
       - name: Build without signing credentials
         shell: bash
         env:
@@ -50,8 +56,28 @@ jobs:
             -destination 'generic/platform=macOS' \
             -derivedDataPath "$RUNNER_TEMP/PlayCoverDerivedData" \
             CODE_SIGNING_ALLOWED=NO \
-            build
+            build 2>&1 | tee "$RUNNER_TEMP/playcover-xcodebuild.log"
       - name: Verify no signing credentials were required
         shell: bash
         run: |
           test -d "$RUNNER_TEMP/PlayCoverDerivedData/Build/Products/Release/PlayCover.app"
+      - name: Preserve Carthage and Xcode logs
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/ci-logs"
+          for log in "$RUNNER_TEMP/carthage-bootstrap.log" "$RUNNER_TEMP/playcover-xcodebuild.log"; do
+            if [ -f "$log" ]; then cp "$log" "$RUNNER_TEMP/ci-logs/"; fi
+          done
+          find "${TMPDIR:-/tmp}" -type f -name 'carthage-xcodebuild.*.log' \
+            -exec cp -v {} "$RUNNER_TEMP/ci-logs/" \;
+          echo "Collected build logs:"
+          ls -lh "$RUNNER_TEMP/ci-logs/"
+      - name: Upload build diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-build-diagnostics
+          path: ${{ runner.temp }}/ci-logs/
+          if-no-files-found: warn
+          retention-days: 7

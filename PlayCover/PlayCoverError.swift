@@ -12,6 +12,7 @@ enum PlayCoverError: Error {
     case appMaliciousProhibited
     case failedToStripBinary
     case invalidUserDylib
+    case quarantinedUserDylib
 }
 
 extension PlayCoverError: LocalizedError {
@@ -35,6 +36,8 @@ extension PlayCoverError: LocalizedError {
             return NSLocalizedString("error.failedToStripBinary", comment: "")
         case .invalidUserDylib:
             return NSLocalizedString("error.invalidUserDylib", comment: "")
+        case .quarantinedUserDylib:
+            return "Import blocked: macOS quarantined this plug-in."
         }
     }
 }
