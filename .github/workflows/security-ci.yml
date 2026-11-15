@@ -13,7 +13,6 @@ on:
     branches:
       - develop
       - security-hardening
-      - fix/adhoc-sparkle-library-validation
     paths:
       - 'PlayCover/**'
       - 'PlayCover.xcodeproj/**'
@@ -66,14 +65,11 @@ jobs:
         shell: bash
         run: |
           test -d "$RUNNER_TEMP/PlayCoverDerivedData/Build/Products/Release/PlayCover.app"
-      # Trusted develop/security-hardening pushes and the temporary signing-fix
-      # validation branch publish test artifacts; remove that branch allowlist
-      # before merging this PR.
       # Only trusted branch pushes publish temporary test artifacts. Pull requests
       # compile but never upload runnable apps, even when their code is untrusted.
       # Do not replace or claim to be a Developer ID signed/notarized release.
       - name: Ad-hoc sign and package arm64 test build
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/security-hardening' || github.ref == 'refs/heads/fix/adhoc-sparkle-library-validation')
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/security-hardening')
         shell: bash
         run: |
           set -euo pipefail
@@ -138,7 +134,7 @@ jobs:
           EOF
 
       - name: Upload ad-hoc signed test build
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/security-hardening' || github.ref == 'refs/heads/fix/adhoc-sparkle-library-validation')
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/security-hardening')
         uses: actions/upload-artifact@v4
         with:
           name: PlayCover-SecurityTest-arm64
