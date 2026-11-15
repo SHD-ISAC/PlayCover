@@ -14,30 +14,48 @@ class AppIntegrity: ObservableObject {
     }
 
     func moveToApps() {
+        guard let source = AppIntegrity.appUrl else { return }
+
+        // A test build may be named PlayCover-SecurityTest.app, so check the
+        // containing directory instead of requiring /Applications/PlayCover.app.
+        if AppIntegrity.insideAppsFolder {
+            integrityOff = false
+            return
+        }
+
+        // Preserve the bundle name. Do not replace a production installation
+        // with a differently named test build, or silently remove any existing app.
+        guard source.pathExtension.lowercased() == "app" else { return }
+        let destination = AppIntegrity.applicationsFolder
+            .appendingPathComponent(source.lastPathComponent, isDirectory: true)
+
         do {
-            if let url = AppIntegrity.appUrl {
-                FileManager.default.delete(at: AppIntegrity.expectedUrl)
-                try FileManager.default.copyItem(at: url, to: AppIntegrity.expectedUrl)
-                URL(fileURLWithPath: AppIntegrity.expectedUrl.path).openInFinder()
-                FileManager.default.delete(at: url)
-                    exit(0)
-                }
-            } catch {
-                Log.shared.error(error)
+            guard !FileManager.default.fileExists(atPath: destination.path) else {
+                throw CocoaError(.fileWriteFileExists)
+            }
+            try FileManager.default.moveItem(at: source, to: destination)
+            destination.openInFinder()
+            exit(0)
+        } catch {
+            Log.shared.error(error)
         }
     }
 
     private static var appUrl: URL? {
-        Bundle.main.resourceURL?.deletingLastPathComponent().deletingLastPathComponent()
+        Bundle.main.bundleURL
     }
 
-    private static var expectedUrl = URL(fileURLWithPath: "/Applications/PlayCover.app")
+    private static let applicationsFolder = URL(fileURLWithPath: "/Applications", isDirectory: true)
 
     private static var insideAppsFolder: Bool {
-        if let url = appUrl {
-            return url.path.contains("Xcode") || url.path.contains(expectedUrl.path)
-        }
-        return false
-    }
+        guard let url = appUrl else { return false }
 
+        // Preserve development builds launched from Xcode without treating
+        // unrelated paths containing "/Applications" as installed apps.
+        if url.path.contains("Xcode") {
+            return true
+        }
+        return url.deletingLastPathComponent().resolvingSymlinksInPath().standardizedFileURL ==
+            applicationsFolder.resolvingSymlinksInPath().standardizedFileURL
+    }
 }
