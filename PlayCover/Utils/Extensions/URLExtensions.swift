@@ -35,9 +35,17 @@ extension URL {
         (try? resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
     }
 
+    // Hash large IPA files incrementally rather than loading the entire archive into memory.
     var sha256: String? {
         do {
-            return SHA256.hash(data: try Data(contentsOf: self))
+            let handle = try FileHandle(forReadingFrom: self)
+            defer { try? handle.close() }
+
+            var hasher = SHA256()
+            while let chunk = try handle.read(upToCount: 1024 * 1024), !chunk.isEmpty {
+                hasher.update(data: chunk)
+            }
+            return hasher.finalize()
                 .map { String(format: "%02hhx", $0) }
                 .joined()
         } catch {

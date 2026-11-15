@@ -1,0 +1,143 @@
+name: macOS unsigned build and security checks
+
+on:
+  pull_request:
+    paths:
+      - 'PlayCover/**'
+      - 'PlayCover.xcodeproj/**'
+      - 'Cartfile*'
+      - 'fastlane/**'
+      - '.github/workflows/security-ci.yml'
+  push:
+    branches:
+      - develop
+      - security-hardening
+    paths:
+      - 'PlayCover/**'
+      - 'PlayCover.xcodeproj/**'
+      - 'Cartfile*'
+      - 'fastlane/**'
+      - '.github/workflows/security-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unsigned-build:
+    name: macOS unsigned build
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Select Xcode and build PlayTools dependency
+        shell: bash
+        env:
+          # Carthage uses this token for GitHub requests instead of the shared runner IP quota.
+          GITHUB_ACCESS_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          brew install carthage swiftlint
+          swiftlint version
+          # The pinned PlayTools release has no binary assets; build from source.
+          # Preserve diagnostics even if Carthage itself only prints "exit code 65".
+          carthage bootstrap --use-xcframeworks --no-use-binaries 2>&1 |
+            tee "$RUNNER_TEMP/carthage-bootstrap.log"
+      - name: Build without signing credentials
+        shell: bash
+        env:
+          FASTLANE: "1"
+        run: |
+          set -euo pipefail
+          xcodebuild -project PlayCover.xcodeproj \
+            -scheme PlayCover \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -derivedDataPath "$RUNNER_TEMP/PlayCoverDerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            build 2>&1 | tee "$RUNNER_TEMP/playcover-xcodebuild.log"
+      - name: Verify no signing credentials were required
+        shell: bash
+        run: |
+          test -d "$RUNNER_TEMP/PlayCoverDerivedData/Build/Products/Release/PlayCover.app"
+      # Build a separately named test bundle; never replace a trusted release
+      # or claim it is Developer ID signed / Apple notarized.
+      - name: Ad-hoc sign and package arm64 test build
+        if: github.event_name == 'push' && github.ref == 'refs/heads/security-hardening'
+        shell: bash
+        run: |
+          set -euo pipefail
+          app="$RUNNER_TEMP/PlayCoverDerivedData/Build/Products/Release/PlayCover.app"
+          test_app="$RUNNER_TEMP/PlayCover-SecurityTest.app"
+          dist="$RUNNER_TEMP/test-distribution"
+          mkdir -p "$dist"
+          /usr/bin/ditto "$app" "$test_app"
+
+          # This is an ad-hoc test signature, NOT Apple Developer ID signing.
+          # Recursively sign embedded frameworks/XPC helpers for this disposable
+          # test copy, then verify its resource seal before packaging.
+          /usr/bin/codesign --force --deep --sign - --options runtime --timestamp=none "$test_app"
+          /usr/bin/codesign --verify --deep --strict --verbose=2 "$test_app"
+          /usr/bin/codesign -dv --verbose=4 "$test_app" 2>&1 | tee "$dist/signature-details.txt"
+          /usr/bin/lipo -info "$test_app/Contents/MacOS/PlayCover" |
+            tee "$dist/architecture.txt"
+          grep -q arm64 "$dist/architecture.txt"
+
+          name="PlayCover-SecurityTest-${GITHUB_SHA:0:12}-arm64"
+          /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$test_app" "$dist/$name.zip"
+          (
+            cd "$dist"
+            shasum -a 256 "$name.zip" > "$name.zip.sha256"
+          )
+          cat > "$dist/READ-ME-FIRST.txt" <<'EOF'
+          PlayCover SECURITY-HARDENING TEST BUILD — UNNOTARIZED
+
+          This archive contains an ad-hoc signed application for Apple Silicon.
+          It has NOT received a Developer ID signature or Apple notarization.
+          Its code signature only checks internal integrity; it does not establish
+          developer identity or assure that the software is safe.
+
+          Treat as untrusted development software. macOS Gatekeeper may refuse
+          to open it. Do NOT disable SIP, AMFI, or Gatekeeper system-wide.
+          Do not overwrite an existing official PlayCover installation.
+          Test in an isolated macOS user account with no sensitive IPAs or plugins.
+          The app keeps its upstream bundle identifier and may share settings.
+
+          The matching SHA-256 file authenticates downloads ONLY when compared
+          to a hash obtained from a trusted source such as the GitHub workflow.
+          Artifacts are temporary and are NOT published as a GitHub Release.
+          EOF
+
+      - name: Upload ad-hoc signed test build
+        if: github.event_name == 'push' && github.ref == 'refs/heads/security-hardening'
+        uses: actions/upload-artifact@v4
+        with:
+          name: PlayCover-SecurityTest-arm64
+          path: ${{ runner.temp }}/test-distribution/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+      - name: Preserve Carthage and Xcode logs
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/ci-logs"
+          for log in "$RUNNER_TEMP/carthage-bootstrap.log" "$RUNNER_TEMP/playcover-xcodebuild.log"; do
+            if [ -f "$log" ]; then cp "$log" "$RUNNER_TEMP/ci-logs/"; fi
+          done
+          find "${TMPDIR:-/tmp}" -type f -name 'carthage-xcodebuild.*.log' \
+            -exec cp -v {} "$RUNNER_TEMP/ci-logs/" \;
+          echo "Collected build logs:"
+          ls -lh "$RUNNER_TEMP/ci-logs/"
+      - name: Upload build diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-build-diagnostics
+          path: ${{ runner.temp }}/ci-logs/
+          if-no-files-found: warn
+          retention-days: 7

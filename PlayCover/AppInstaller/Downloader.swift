@@ -129,6 +129,11 @@ class DownloadApp {
                             Task { @MainActor in
                                 self.proceedInstall(fileURL)
                             }
+                        } else {
+                            if let fileURL = fileURL {
+                                FileManager.default.delete(at: fileURL)
+                            }
+                            self.downloadVM.storeAppData = nil
                         }
                     }
                 })
@@ -143,32 +148,27 @@ class DownloadApp {
         }
     }
 
+    // Hash off the main thread; report UI state only on the main thread.
+    // SHA-256 only authenticates a download when the source metadata is trusted.
     private func verifyChecksum(checksum: String?, file: URL?, completion: @escaping (Bool) -> Void) {
-        Task {
-            if let originalSum = checksum, !originalSum.isEmpty, let fileURL = file {
-                if let sha256 = fileURL.sha256, originalSum != sha256 {
-                    checksumAlert(originalSum: originalSum, givenSum: sha256, completion: completion)
+        DispatchQueue.global(qos: .utility).async {
+            let expected = checksum?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let validDigest = expected?.count == 64 && (expected?.allSatisfy { $0.isHexDigit } == true)
+            let actual = validDigest ? file?.sha256?.lowercased() : nil
+
+            DispatchQueue.main.async {
+                guard validDigest, file != nil else {
+                    Log.shared.error("Download blocked: a valid SHA-256 is required for remote IPA sources.")
+                    completion(false)
                     return
                 }
+                guard actual == expected else {
+                    Log.shared.error("Download blocked: IPA SHA-256 mismatch or unreadable archive.")
+                    completion(false)
+                    return
+                }
+                completion(true)
             }
-
-            completion(true)
-        }
-    }
-
-    private func checksumAlert(originalSum: String, givenSum: String, completion: @escaping (Bool) -> Void) {
-        Task { @MainActor in
-            let alert = NSAlert()
-            alert.messageText = NSLocalizedString("playapp.download.differentChecksum", comment: "")
-            alert.informativeText = String(
-                format: NSLocalizedString("playapp.download.differentChecksumDesc", comment: ""),
-                arguments: [originalSum, givenSum]
-            )
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: NSLocalizedString("button.Proceed", comment: ""))
-            alert.addButton(withTitle: NSLocalizedString("button.Cancel", comment: ""))
-
-            completion(alert.runModal() == .alertFirstButtonReturn)
         }
     }
 

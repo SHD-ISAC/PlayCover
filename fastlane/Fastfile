@@ -29,7 +29,7 @@ lane :release do
   setup_ci if ENV['CI']
   match(type: "developer_id", readonly: true)
   Dir.chdir("..") do
-    sh("carthage", "update", "--use-xcframeworks")
+    sh("carthage", "bootstrap", "--use-xcframeworks")
   end
   build_mac_app(
     configuration: "Release",
@@ -47,9 +47,8 @@ lane :nightly do
   setup_ci if ENV['CI']
   match(type: "developer_id", readonly: true)
   Dir.chdir("..") do
-    sh("carthage", "update", "--use-xcframeworks")
+    sh("carthage", "bootstrap", "--use-xcframeworks")
   end
-  carthage(use_xcframeworks: true)
   build_mac_app(
     configuration: "Nightly",
     scheme: "PlayCover",
@@ -70,16 +69,7 @@ lane :notarize_app do
   )
 end
 
-lane :notarize_dmg do |options|
-  notarize(
-    use_notarytool: true,
-    package: options[:package],
-    api_key_path: "apikey.json",
-    bundle_id: bundle_id,
-    print_log: true,
-    # verbose: true,
-  )
-end
+# DMG notarization runs in GitHub Actions using Apple's supported notarytool.
 
 lane :rename_dmg do
   sh(
