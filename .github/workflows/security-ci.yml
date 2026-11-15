@@ -8,6 +8,7 @@ on:
       - 'Cartfile*'
       - 'fastlane/**'
       - '.github/workflows/security-ci.yml'
+      - '.github/ci/**'
   push:
     branches:
       - develop
@@ -18,6 +19,7 @@ on:
       - 'Cartfile*'
       - 'fastlane/**'
       - '.github/workflows/security-ci.yml'
+      - '.github/ci/**'
   workflow_dispatch:
 
 permissions:
@@ -81,9 +83,22 @@ jobs:
           # This is an ad-hoc test signature, NOT Apple Developer ID signing.
           # Recursively sign embedded frameworks/XPC helpers for this disposable
           # test copy, then verify its resource seal before packaging.
+          # Ad-hoc code has no Apple Team ID. With hardened runtime enabled,
+          # macOS library validation rejects separately signed Sparkle.framework.
+          # Use the smallest available runtime exception on this test copy only;
+          # keep hardened runtime and all production entitlements unchanged.
+          /usr/bin/plutil -lint ".github/ci/test-app.entitlements"
           /usr/bin/codesign --force --deep --sign - --options runtime --timestamp=none "$test_app"
+          /usr/bin/codesign --force --sign - --options runtime --timestamp=none \
+            --entitlements ".github/ci/test-app.entitlements" "$test_app"
           /usr/bin/codesign --verify --deep --strict --verbose=2 "$test_app"
+          /usr/bin/codesign -d --entitlements "$dist/signed-test-entitlements.plist" --xml "$test_app"
+          /usr/bin/plutil -lint "$dist/signed-test-entitlements.plist"
+          /usr/libexec/PlistBuddy -c "Print :com.apple.security.cs.disable-library-validation" \
+            "$dist/signed-test-entitlements.plist" | grep -Fxq true
           /usr/bin/codesign -dv --verbose=4 "$test_app" 2>&1 | tee "$dist/signature-details.txt"
+          /usr/bin/codesign -dv --verbose=4 "$test_app/Contents/Frameworks/Sparkle.framework" 2>&1 |
+            tee "$dist/sparkle-signature-details.txt"
           /usr/bin/lipo -info "$test_app/Contents/MacOS/PlayCover" |
             tee "$dist/architecture.txt"
           grep -q arm64 "$dist/architecture.txt"
@@ -98,6 +113,11 @@ jobs:
           PlayCover DEVELOPMENT TEST BUILD — UNNOTARIZED
 
           This archive contains an ad-hoc signed application for Apple Silicon.
+          It retains Hardened Runtime but disables Library Validation ONLY within
+          this disposable test app, so the ad-hoc app can load Sparkle.framework
+          without a matching Apple signing Team ID.
+          This exception weakens the app process's protection against loading
+          arbitrary third-party libraries. Use only trusted IPAs and plug-ins.
           It has NOT received a Developer ID signature or Apple notarization.
           Its code signature only checks internal integrity; it does not establish
           developer identity or assure that the software is safe.
