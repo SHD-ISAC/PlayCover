@@ -79,6 +79,11 @@ jobs:
           mkdir -p "$dist"
           printf '%s\n' "$GITHUB_SHA" > "$dist/source-commit.txt"
           /usr/bin/ditto "$app" "$test_app"
+          # Mark this distribution to suppress upstream Sparkle updates.
+          /usr/libexec/PlistBuddy -c "Add :PlayCoverForkDistribution string unnotarized" \
+            "$test_app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Print :PlayCoverForkDistribution" \
+            "$test_app/Contents/Info.plist" | grep -Fxq unnotarized
 
           # This is an ad-hoc test signature, NOT Apple Developer ID signing.
           # Recursively sign embedded frameworks/XPC helpers for this disposable
@@ -118,6 +123,8 @@ jobs:
           without a matching Apple signing Team ID.
           This exception weakens the app process's protection against loading
           arbitrary third-party libraries. Use only trusted IPAs and plug-ins.
+          Upstream Sparkle auto-updates are disabled in this fork build.
+          Check GitHub Releases manually for new versions.
           It has NOT received a Developer ID signature or Apple notarization.
           Its code signature only checks internal integrity; it does not establish
           developer identity or assure that the software is safe.
