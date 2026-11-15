@@ -63,10 +63,11 @@ jobs:
         shell: bash
         run: |
           test -d "$RUNNER_TEMP/PlayCoverDerivedData/Build/Products/Release/PlayCover.app"
-      # Build a separately named test bundle; never replace a trusted release
-      # or claim it is Developer ID signed / Apple notarized.
+      # Only trusted branch pushes publish temporary test artifacts. Pull requests
+      # compile but never upload runnable apps, even when their code is untrusted.
+      # Do not replace or claim to be a Developer ID signed/notarized release.
       - name: Ad-hoc sign and package arm64 test build
-        if: github.event_name == 'push' && github.ref == 'refs/heads/security-hardening'
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/security-hardening')
         shell: bash
         run: |
           set -euo pipefail
@@ -74,6 +75,7 @@ jobs:
           test_app="$RUNNER_TEMP/PlayCover-SecurityTest.app"
           dist="$RUNNER_TEMP/test-distribution"
           mkdir -p "$dist"
+          printf '%s\n' "$GITHUB_SHA" > "$dist/source-commit.txt"
           /usr/bin/ditto "$app" "$test_app"
 
           # This is an ad-hoc test signature, NOT Apple Developer ID signing.
@@ -93,7 +95,7 @@ jobs:
             shasum -a 256 "$name.zip" > "$name.zip.sha256"
           )
           cat > "$dist/READ-ME-FIRST.txt" <<'EOF'
-          PlayCover SECURITY-HARDENING TEST BUILD — UNNOTARIZED
+          PlayCover DEVELOPMENT TEST BUILD — UNNOTARIZED
 
           This archive contains an ad-hoc signed application for Apple Silicon.
           It has NOT received a Developer ID signature or Apple notarization.
@@ -112,7 +114,7 @@ jobs:
           EOF
 
       - name: Upload ad-hoc signed test build
-        if: github.event_name == 'push' && github.ref == 'refs/heads/security-hardening'
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/security-hardening')
         uses: actions/upload-artifact@v4
         with:
           name: PlayCover-SecurityTest-arm64
