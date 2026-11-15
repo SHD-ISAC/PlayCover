@@ -14,14 +14,22 @@ struct UpdateSettings: View {
 
     var body: some View {
         Form {
-            Toggle("preferences.toggle.automaticUpdates", isOn: $autoUpdate)
-            Button("preferences.button.checkForUpdates") {
-                updaterViewModel.checkForUpdates()
+            if updaterViewModel.isForkDistribution {
+                Text("Automatic updates are disabled for this unnotarized fork.")
+                if let url = URL(string: "https://github.com/SHD-ISAC/PlayCover/releases") {
+                    Link("Check fork Releases manually", destination: url)
+                }
+            } else {
+                Toggle("preferences.toggle.automaticUpdates", isOn: $autoUpdate)
+                Button("preferences.button.checkForUpdates") {
+                    updaterViewModel.checkForUpdates()
+                }
             }
         }
         .padding(20)
-        .frame(width: 600, height: 100, alignment: .center)
+        .frame(width: 600, height: updaterViewModel.isForkDistribution ? 120 : 100, alignment: .center)
         .onChange(of: autoUpdate) { value in
+            guard !updaterViewModel.isForkDistribution else { return }
             updaterViewModel.automaticallyCheckForUpdates = value
         }
     }

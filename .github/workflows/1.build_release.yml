@@ -1,11 +1,9 @@
 name: Build & Release macOS App
 on:
   workflow_dispatch:
-    tags:
-          - "*"
   push:
     tags:
-      - "*"
+      - "v*"
 env:
   CI: true
 jobs:
@@ -15,7 +13,7 @@ jobs:
       GITHUB_ACCESS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
       - name: Get the version
         id: tag_version
@@ -71,7 +69,7 @@ jobs:
         run: rm -f apikey.json "$RUNNER_TEMP/playcover_notary_key.p8"
 
       - name: Upload Artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: PlayCover_${{ env.TAG_NAME }}.dmg
           path: output/PlayCover_${{ env.TAG_NAME }}.dmg

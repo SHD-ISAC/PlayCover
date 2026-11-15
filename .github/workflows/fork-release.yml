@@ -1,0 +1,70 @@
+name: Publish verified unnotarized fork pre-release
+
+on:
+  create:
+  push:
+    branches:
+      - 'release/publish-fork-*'
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: fork-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'SHD-ISAC/PlayCover' && (github.event_name == 'push' || (github.event_name == 'create' && github.event.ref_type == 'branch' && startsWith(github.event.ref, 'release/publish-fork-')))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Find successful develop CI for exact source commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#release/publish-}"
+          [[ "$tag" =~ ^fork-v[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
+          run_id="$(gh run list -R "$GITHUB_REPOSITORY" --workflow security-ci.yml             --branch develop --limit 100             --json databaseId,headSha,conclusion             --jq "[.[] | select(.headSha == \"$GITHUB_SHA\" and .conclusion == \"success\") | .databaseId][0]")"
+          [[ -n "$run_id" && "$run_id" != "null" ]] || {
+            echo "No verified develop build for $GITHUB_SHA" >&2
+            exit 1
+          }
+          echo "RELEASE_TAG=$tag" >> "$GITHUB_ENV"
+          echo "VERIFIED_RUN_ID=$run_id" >> "$GITHUB_ENV"
+      - name: Download and verify source-bound CI artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/verified" "$RUNNER_TEMP/publish"
+          gh run download "$VERIFIED_RUN_ID" -R "$GITHUB_REPOSITORY"             -n PlayCover-SecurityTest-arm64 -D "$RUNNER_TEMP/verified"
+          cd "$RUNNER_TEMP/verified"
+          [[ "$(cat source-commit.txt)" == "$GITHUB_SHA" ]] || exit 1
+          original="PlayCover-SecurityTest-${GITHUB_SHA:0:12}-arm64.zip"
+          test -f "$original" && test -f "$original.sha256"
+          sha256sum -c "$original.sha256"
+          test -s signed-test-entitlements.plist
+          grep -q com.apple.security.cs.disable-library-validation signed-test-entitlements.plist
+          test -s sparkle-signature-details.txt
+          grep -q arm64 architecture.txt
+          dest="PlayCover-${RELEASE_TAG}-arm64-UNNOTARIZED.zip"
+          cp "$original" "$RUNNER_TEMP/publish/$dest"
+          ( cd "$RUNNER_TEMP/publish" && sha256sum "$dest" > "$dest.sha256" )
+          cp READ-ME-FIRST.txt "$RUNNER_TEMP/publish/"
+          printf '%s\n'             "## UNNOTARIZED GitHub fork pre-release"             ""             "Source commit: \`$GITHUB_SHA\`"             "Verified GitHub Actions run: $VERIFIED_RUN_ID"             ""             "Ad-hoc signed for Apple Silicon only; not Developer ID signed or Apple notarized."             "The hardened runtime remains enabled, but library validation is disabled for this app process to load embedded Sparkle. This weakens library-loading protection."             "Fork Sparkle automatic updates are disabled. Check this repository's Releases manually."             "Verify the SHA-256 manifest; do not use unknown IPA files or plugins, disable SIP/AMFI/Gatekeeper, or overwrite an official installation."             "This is not an upstream release or a claim of full runtime compatibility."             > "$RUNNER_TEMP/publish/RELEASE-NOTES.md"
+      - name: Publish GitHub pre-release without Apple signing claims
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! gh release view "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || {
+            echo "Release already exists; refusing to overwrite" >&2
+            exit 1
+          }
+          gh release create "$RELEASE_TAG"             "$RUNNER_TEMP/publish/PlayCover-${RELEASE_TAG}-arm64-UNNOTARIZED.zip"             "$RUNNER_TEMP/publish/PlayCover-${RELEASE_TAG}-arm64-UNNOTARIZED.zip.sha256"             "$RUNNER_TEMP/publish/READ-ME-FIRST.txt"             --repo "$GITHUB_REPOSITORY"             --target "$GITHUB_SHA"             --title "PlayCover Fork ${RELEASE_TAG} (UNNOTARIZED)"             --notes-file "$RUNNER_TEMP/publish/RELEASE-NOTES.md"             --prerelease
