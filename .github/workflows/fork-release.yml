@@ -1,6 +1,7 @@
 name: Publish verified unnotarized fork pre-release
 
 on:
+  create:
   push:
     branches:
       - 'release/publish-fork-*'
@@ -15,7 +16,7 @@ concurrency:
 
 jobs:
   publish:
-    if: github.repository == 'SHD-ISAC/PlayCover'
+    if: github.repository == 'SHD-ISAC/PlayCover' && (github.event_name == 'push' || (github.event_name == 'create' && github.event.ref_type == 'branch' && startsWith(github.event.ref, 'release/publish-fork-')))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
