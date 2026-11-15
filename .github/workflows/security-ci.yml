@@ -65,8 +65,7 @@ jobs:
           test -d "$RUNNER_TEMP/PlayCoverDerivedData/Build/Products/Release/PlayCover.app"
       # Only trusted branch pushes publish temporary test artifacts. Pull requests
       # compile but never upload runnable apps, even when their code is untrusted.
-      # Never replace a Developer ID signed/notarized release.
-      # or claim it is Developer ID signed / Apple notarized.
+      # Do not replace or claim to be a Developer ID signed/notarized release.
       - name: Ad-hoc sign and package arm64 test build
         if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/security-hardening')
         shell: bash
