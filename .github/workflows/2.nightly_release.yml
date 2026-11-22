@@ -1,8 +1,9 @@
 name: Build nightly release
+# The fork has no Developer ID signing credentials. Do not schedule this
+# upstream signed release workflow: it would fail every night at fastlane match.
+# Keep manual dispatch for future explicitly configured Developer ID builds.
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "30 19 * * *"
 env:
   CI: true
 jobs:
